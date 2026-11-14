@@ -21,9 +21,10 @@ Do not fetch the video, run a script, or write a file until you know these two t
 How to get them:
 - If the request already gives one of them, use it. Do not ask again.
 - If a file `reader-profile.md` is next to this SKILL.md, read it. Show it in one line and ask the user to confirm or change it. The file can also give a default output path. See `reader-profile.example.md` for the format.
-- Else ask the user. Ask both questions in one message. Use a question tool if one is available. Offer a default for each:
-  - Profile: "Technical professional, new to this topic".
-  - Path: a `video-notes` folder in the current working folder.
+- Else ask the user. Ask both questions in one message. Use a question tool if one is available. Offer two choices for each question: the default and one realistic alternative. A question tool usually needs at least two options.
+  - Profile: default "Technical professional, new to this topic". Alternative, for example: "Software engineer, working knowledge of the topic".
+  - Path: default a `video-notes` folder in the current working folder. Alternative: `~/Documents/video-notes`.
+- Create the output folder if it does not exist. A folder outside the current working folder can need the user's approval for access. Ask for it before you start the long steps.
 - If the user does not answer, or tells you to continue, use the defaults. Write the profile and the path that you used in the Summary box.
 - Do not guess a profile from the user's name, email, or other personal data.
 
@@ -59,20 +60,24 @@ Write for the reader profile from "Before you start".
 
 # Workflow
 Do these steps in order. Do the full job in one session. Do "Before you start" first.
-Setup: `slide_tools.py` and `build_pdf.py` are in the `scripts` folder of this skill. `slide_tools.py` needs yt-dlp, Pillow, and ffmpeg (or the imageio-ffmpeg package). Diagrams and the PDF need matplotlib, reportlab, and pymupdf. Install them in a virtual environment in a scratch or temporary folder.
-1. Get the transcript with timestamps. Get the title, speaker, date, length, chapter list, and the video description. The description often lists the links to the resources.
+Setup: `slide_tools.py` and `build_pdf.py` are in the `scripts` folder of this skill. Install `requirements.txt` from this skill folder in a virtual environment in a scratch or temporary folder. If ffmpeg is not installed, the `imageio-ffmpeg` package supplies it.
+1. Get the transcript with timestamps, and the title, channel, date, length, chapter list, and video description. Run:
+   `python <skill folder>/scripts/slide_tools.py transcript <url> <work_dir>`
+   It writes `transcript.txt` (one line per minute) and `meta.json`. The description often lists the links to the resources.
    If the transcript is too long to read in one step, read it in parts. After each part, save a digest to disk: time, claim, example, numbers, names.
 2. Find the slides. Do not save the video. Run:
    `python <skill folder>/scripts/slide_tools.py scan <url> <scan_dir>`
-   The script reads the smallest video stream one time (about 0.2 MB per minute of video) and looks at one frame each 2 seconds. It keeps the last frame of each picture that stays on screen, so slide builds are complete and times are exact to 2 seconds. It writes contact sheets of slide candidates and `inventory.txt`. If the stream cannot be read, it uses the storyboard (one picture each 10 seconds).
+   The script reads the smallest video stream one time (about 0.2 to 0.8 MB per minute of video) and looks at one frame each 2 seconds. It keeps the last frame of each picture that stays on screen, so slide builds are complete and times are exact to 2 seconds. It drops camera views that keep coming back. It writes contact sheets of slide candidates and `inventory.txt`. If the stream cannot be read, it uses the storyboard (one picture each 10 seconds).
+   A page that shows for less than 4 seconds is kept and marked "(brief page)" in `inventory.txt`. These are often paper title pages, posts, or articles. Check them for names, titles, and URLs.
 3. Look at the contact sheets one time. Make a slide inventory: time, slide title, and the idea it supports. `inventory.txt` also lists the camera-view ranges, where a slide can show only on the stage screen.
 4. Outline the main ideas in video order. For each idea, select the visual with the rules below.
 5. Get only the selected slides at full resolution. Use the end time of each candidate. Run:
    `python <skill folder>/scripts/slide_tools.py grab <url> <figures_dir> --match <scan_dir>/tiles <time> <time> ...`
    Write each time as it is in `inventory.txt` (mm:ss, or h:mm:ss for a video longer than one hour).
-   The script reads only the bytes near each frame (less than 1 MB per slide). It compares each frame with its scan tile and corrects the time if necessary. Use the matched time in the caption.
+   The script reads only the bytes near each frame (about 0.3 to 2 MB per frame, depending on the stream). It compares each frame with its scan tile and corrects the time if necessary. Use the matched time in the caption.
 6. Look at `check.jpg` one time to confirm the frames. Open a slide at full size only when you must read small text from it.
 7. Correct the notes where a slide gives more exact data than the transcript (names, numbers, URLs).
+   Auto-captions often misspell names. Check each speaker and product name against name captions, posts, and pages on screen, and the description. Mark a name that you cannot confirm "(spelling from captions)".
 8. Make the resource list (see "8. Resources"). Number it in video order. Then write the notes with the citations. Build the PDF:
    `python <skill folder>/scripts/build_pdf.py <notes.md> <notes.pdf>`
    The script makes the `[[n]](#ref-n)` citations, the `[text](url)` links, and the "Cited in" section links clickable.

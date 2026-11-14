@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Find and grab slides from a YouTube video without saving the video.
+"""Get the transcript, and find and grab slides, from a YouTube video without saving the video.
+
+  transcript  URL OUT_DIR [--lang en]
+        Writes transcript.txt (one line per minute, with [mm:ss] or [h:mm:ss]) and
+        meta.json (title, channel, date, length, chapters, description).
 
   scan  URL OUT_DIR [--storyboard] [--max N]
         Dense pass (default): reads the smallest video stream once, looks at one
@@ -8,6 +12,7 @@
         --storyboard: use YouTube's thumbnail strip (one picture each 10 s, about
         1 MB for a 40-minute video). Also the automatic fallback.
         Writes contact sheets (max N candidates, default 144), tiles/, inventory.txt.
+        A page (paper or slide) is kept even if it shows for less than MIN_HOLD seconds.
 
   grab  URL OUT_DIR [--match SCAN_DIR/tiles] TIME ...
         Full-res frames at the given times (mm:ss or h:mm:ss), read straight from
@@ -15,7 +20,7 @@
         checked against its scan tile and the time is corrected if necessary.
         Writes check.jpg, one small sheet of all frames.
 
-Needs: yt-dlp, Pillow, and ffmpeg (system binary or the imageio-ffmpeg package).
+Needs: yt-dlp, youtube-transcript-api, Pillow, and ffmpeg (system binary or the imageio-ffmpeg package).
 """
 import io, os, re, shutil, subprocess, sys, threading, time, urllib.request
 
@@ -26,7 +31,8 @@ MIN_HOLD = 4   # dense pass: a picture must stay this many seconds to count
 DUP = 7.0      # mean abs diff (0-255) on a 16x9 thumb: below this, same picture as the frame before
 VIEW = 16.0    # below this, two pictures show the same camera view (speaker, stage)
 VIEW_MIN = 6   # a view that returns this many times is a camera view, not a slide
-PAPER = 0.35   # share of near-white or near-black pixels: above this, the picture looks like a page
+PAPER = 0.35   # share of near-white or near-black pixels: above this, the picture can be a page...
+PAGE_SAT = 12  # ...if its mean saturation (max - min channel, 0-255) is also below this. Dark studio shots are colorful.
 COLS, TILE_W, TW, TH = 6, 240, 320, 180
 
 
@@ -63,9 +69,21 @@ def dist(a, b):
 
 
 def paper(im):
+    """Share of near-white or near-black pixels."""
     b = im.convert("RGB").resize((32, 18), Image.BILINEAR).tobytes()
     px = [b[i:i + 3] for i in range(0, len(b), 3)]
     return sum(1 for q in px if min(q) > 225 or max(q) < 35) / len(px)
+
+
+def saturation(im):
+    b = im.convert("RGB").resize((32, 18), Image.BILINEAR).tobytes()
+    px = [b[i:i + 3] for i in range(0, len(b), 3)]
+    return sum(max(q) - min(q) for q in px) / len(px)
+
+
+def is_page(im):
+    """A slide or paper page: mostly plain white or black background, and almost no color."""
+    return paper(im) >= PAPER and saturation(im) < PAGE_SAT
 
 
 def fetch(url, tries=4):
@@ -92,14 +110,15 @@ class Runs:
 
 def select(runs, dense=True, cap=144):
     """Split runs into slide candidates and camera views. Return (runs, keep, cam, shown)."""
-    if dense: runs = [r for r in runs if r["end"] - r["start"] >= MIN_HOLD]
+    for r in runs: r["page"] = is_page(r["im"])
+    if dense: runs = [r for r in runs if r["end"] - r["start"] >= MIN_HOLD or r["page"]]   # a page can flash by
     views = []      # a view that keeps coming back is a camera view (speaker, stage), not a slide...
     for r in runs:
         for v in views:
             if dist(r["sig"], v["sig"]) < VIEW: v["n"] += 1; r["view"] = v; break
         else:
             r["view"] = dict(sig=r["sig"], n=1); views.append(r["view"])
-    for r in runs: r["cam"] = r["view"]["n"] >= VIEW_MIN and paper(r["im"]) < PAPER   # ...unless it looks like a page
+    for r in runs: r["cam"] = r["view"]["n"] >= VIEW_MIN and not r["page"]   # ...unless it looks like a page
     keep, cam = [r for r in runs if not r["cam"]], [r for r in runs if r["cam"]]
     shown = sorted(sorted(keep, key=lambda r: r["start"] - r["end"])[:cap], key=lambda r: r["start"])   # longest holds first if too many
     return runs, keep, cam, shown
@@ -179,12 +198,42 @@ def scan(url, out, storyboard=False, cap=144):
     with open(os.path.join(out, "inventory.txt"), "w") as f:
         f.write(f"# {d.get('title')} | {fmt(d['duration'], long)} | {mode} pass\n# slide candidates: start-end, * = on a contact sheet. Grab at the end time, where slide builds are complete.\n")
         for r in keep:
-            f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}{' *' if r in shown else ''}\n")
+            brief = " (brief page)" if r["end"] - r["start"] < MIN_HOLD else ""
+            f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}{' *' if r in shown else ''}{brief}\n")
             r["im"].save(os.path.join(out, "tiles", fmt(r["end"], long).replace(":", "") + ".jpg"), quality=85)
         f.write("# camera views (no clean slide; a slide may still show on a stage screen)\n")
         for r in cam: f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}\n")
     print(f"pictures that stay on screen: {len(runs)}  slide candidates: {len(keep)} ({len(shown)} on sheets)  camera views dropped: {len(cam)}")
     print("sheets:", *sheets, sep="\n  ")
+
+
+def minute_lines(snippets, long=False):
+    """Group (start_seconds, text) snippets into one line per minute: "[mm:ss] text"."""
+    lines, cur, buf = [], None, []
+    for start, text in snippets:
+        m = int(start) // 60
+        if cur is None: cur = m
+        if m != cur:
+            lines.append(f"[{fmt(cur * 60, long)}] " + " ".join(buf)); buf, cur = [], m
+        buf.append(" ".join(text.split()))
+    if buf: lines.append(f"[{fmt(cur * 60, long)}] " + " ".join(buf))
+    return lines
+
+
+def transcript(url, out, lang="en"):
+    import json
+    from youtube_transcript_api import YouTubeTranscriptApi
+    os.makedirs(out, exist_ok=True)
+    d = info(url); long = d["duration"] >= 3600
+    meta = {k: d.get(k) for k in ("title", "channel", "uploader", "upload_date", "duration", "description", "webpage_url")}
+    meta["chapters"] = [dict(start=fmt(c["start_time"], long), title=c["title"]) for c in d.get("chapters") or []]
+    with open(os.path.join(out, "meta.json"), "w") as f: json.dump(meta, f, indent=1, ensure_ascii=False)
+    t = YouTubeTranscriptApi().fetch(d["id"], languages=[lang, "en"])
+    lines = minute_lines([(s.start, s.text) for s in t], long)
+    with open(os.path.join(out, "transcript.txt"), "w") as f: f.write("\n".join(lines) + "\n")
+    print(f"{meta['title']} | {meta['channel']} | {meta['upload_date']} | {fmt(d['duration'], long)}")
+    print(f"transcript: {len(lines)} lines, {sum(map(len, lines))} characters -> {os.path.join(out, 'transcript.txt')}")
+    print(f"meta: chapters={len(meta['chapters'])}, description={len(meta['description'] or '')} characters -> {os.path.join(out, 'meta.json')}")
 
 
 def grab(url, out, times, tiles=None, max_h=1080):
@@ -229,7 +278,9 @@ if __name__ == "__main__":
     def opt(name, default=None):
         if name not in rest: return default
         i = rest.index(name); v = rest[i + 1]; del rest[i:i + 2]; return v
-    if cmd == "scan":
+    if cmd == "transcript":
+        transcript(url, out, opt("--lang", "en"))
+    elif cmd == "scan":
         sb = "--storyboard" in rest
         scan(url, out, sb, int(opt("--max", 144)))
     else:

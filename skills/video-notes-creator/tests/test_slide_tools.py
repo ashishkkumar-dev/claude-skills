@@ -79,3 +79,41 @@ def test_storyboard_tiles_are_labelled_one_step_late(monkeypatch):
                                       "rows": 2, "columns": 2, "fragments": [{"url": "x"}]}]}
     times = [t for t, _ in st.frames_storyboard(d)]
     assert times == [10, 20, 30, 40]  # tile i shows about (i+1) * step
+
+
+def dark_studio(size=(64, 36)):
+    """Mostly near-black, with colorful people and lights: like a dimly lit studio wide shot."""
+    im = Image.new("RGB", size, (15, 15, 20))
+    for x in range(0, size[0], 4):
+        for y in range(size[1] // 3, size[1]):
+            if (x // 4) % 2 == 0: im.putpixel((x, y), (200, 70, 40))
+    return im
+
+
+def test_is_page_accepts_white_and_black_slides_but_not_a_dark_studio():
+    assert st.is_page(solid((255, 255, 255)))
+    assert st.is_page(solid((10, 10, 10)))
+    studio = dark_studio()
+    assert st.paper(studio) >= st.PAPER       # the old test called this a page...
+    assert not st.is_page(studio)              # ...the new one does not
+
+
+def test_recurring_dark_studio_view_is_dropped():
+    runs, t = [], 0
+    for c in [(200, 50, 50), (50, 200, 50), (50, 50, 200), (200, 200, 50), (200, 50, 200), (50, 200, 200)]:
+        im = dark_studio(); runs.append(dict(start=t, end=t + 10, im=im, sig=st.sig(im))); t += 12
+        runs.append(run(t, t + 10, c)); t += 12
+    _, keep, cam, _ = st.select(runs, dense=True)
+    assert len(cam) == 6 and len(keep) == 6
+
+
+def test_brief_page_is_kept_but_brief_other_picture_is_dropped():
+    runs = [run(0, 2, (255, 255, 255)), run(4, 6, (200, 50, 50)), run(8, 30, (50, 200, 50))]
+    _, keep, _, _ = st.select(runs, dense=True)
+    assert [r["start"] for r in keep] == [0, 8]
+
+
+def test_minute_lines_groups_snippets_by_minute():
+    snippets = [(0.5, "hello"), (30, "world\nagain"), (61, "next"), (3605, "late")]
+    assert st.minute_lines(snippets[:3]) == ["[00:00] hello world again", "[01:00] next"]
+    assert st.minute_lines(snippets, long=True)[-1] == "[1:00:00] late"

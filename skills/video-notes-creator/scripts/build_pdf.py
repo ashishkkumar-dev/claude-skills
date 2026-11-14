@@ -46,10 +46,39 @@ def anchor(t):
     m = re.match(r'^(\d+(?:\.\d+)?)\.? ', t)
     return f'<a name="sec-{m.group(1)}"/>' if m else ''
 
-def vis(x):
+def visible(x):
     x = re.sub(r'<a id="[^"]*"></a>', '', x)
     x = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', x)
-    return len(x.strip())
+    return re.sub(r'[*`]', '', x).strip()
+
+
+def vis(x):
+    return len(visible(x))
+
+
+def longest_word(x):
+    return max((len(w) for w in visible(x).split()), default=0)
+
+
+def col_widths(raw, total):
+    """Width per column: by text length, but never narrower than the longest word (a timestamp, a URL part)."""
+    nc = len(raw[0])
+    cols = [[r[c] for r in raw if c < len(r)] for c in range(nc)]
+    wt = [min(max(max(vis(x) for x in col), 3), 34) for col in cols]
+    wt = [max(w, sum(wt) / nc * 0.45) for w in wt]
+    need = [min(max(longest_word(x) for x in col) + 1.5, 26) * 4.3 for col in cols]   # points per character at 8 pt
+    w = [total * x / sum(wt) for x in wt]
+    for _ in range(3):   # move width from roomy columns to columns whose longest word does not fit
+        short = [i for i in range(nc) if w[i] < need[i]]
+        if not short: break
+        gap = sum(need[i] - w[i] for i in short)
+        roomy = [i for i in range(nc) if i not in short and w[i] > need[i]]
+        spare = sum(w[i] - need[i] for i in roomy)
+        if spare <= 0: break
+        take = min(gap, spare)
+        for i in short: w[i] += (need[i] - w[i]) * take / gap
+        for i in roomy: w[i] -= (w[i] - need[i]) * take / spare
+    return w
 
 def take_heading(story, styles):
     pre = []
@@ -86,10 +115,7 @@ def to_story(md, base):
                     cells = [x.strip() for x in lines[i].strip().strip('|').split('|')]
                     raw.append(cells); rows.append([Paragraph(inl(x), cell) for x in cells])
                 i += 1
-            nc = len(rows[0])
-            wt = [min(max(max(vis(r[c]) for r in raw if c < len(r)), 3), 34) for c in range(nc)]
-            wt = [max(w, sum(wt)/nc*0.45) for w in wt]
-            t = Table(rows, colWidths=[W*w/sum(wt) for w in wt], repeatRows=1)
+            t = Table(rows, colWidths=col_widths(raw, W), repeatRows=1)
             t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.4, colors.grey), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e8e8f4')), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
             pre = take_heading(story, ('lead', 'Heading2', 'Heading3'))
             # A heading followed by one intro paragraph also stays with the table.
@@ -114,6 +140,7 @@ def to_story(md, base):
             story.append(Paragraph(inl(l), lead if l.startswith('**') and (r.endswith('**') or r.endswith(':')) else body))
         else: story.append(Spacer(1, 4))
         i += 1
+    while story and isinstance(story[-1], Spacer): story.pop()   # a trailing spacer can push out an empty page
     return story, title
 
 

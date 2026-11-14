@@ -48,3 +48,17 @@ def test_build_makes_working_links(tmp_path):
     assert sum(1 for l in links if l["kind"] in (pymupdf.LINK_GOTO, pymupdf.LINK_NAMED)) == 2
     text = "".join(p.get_text() for p in doc)
     assert "Figure 1: A test figure." in text and "[1]" in text
+
+
+def test_story_does_not_end_with_a_spacer(tmp_path):
+    # A trailing spacer that does not fit at the bottom of a page makes an empty last page.
+    story, _ = bp.to_story("# T\n\n| # | Name |\n|---|---|\n| 1 | A |\n\n\n\n", str(tmp_path))
+    assert story and not isinstance(story[-1], bp.Spacer)
+
+
+def test_column_is_wide_enough_for_its_longest_word():
+    raw = [["Resource", "What it is", "[mm:ss]"],
+           ["A long resource name with many words", "A long description with many words in it", "[28:42]"]]
+    w = bp.col_widths(raw, 500)
+    assert abs(sum(w) - 500) < 1e-6
+    assert w[2] >= (len("[mm:ss]") + 1.5) * 4.3 - 1e-6
