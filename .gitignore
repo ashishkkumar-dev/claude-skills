@@ -1,0 +1,6 @@
+*.zip
+.DS_Store
+.pytest_cache/
+__pycache__/
+.venv/
+skills/*/reader-profile.md

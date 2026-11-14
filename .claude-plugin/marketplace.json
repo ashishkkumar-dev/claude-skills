@@ -1,0 +1,15 @@
+{
+  "name": "atease",
+  "description": "Agent Skills for Claude Code, each with tests and measured results.",
+  "owner": {
+    "name": "ashishkkumar-dev"
+  },
+  "plugins": [
+    {
+      "name": "video-notes-creator",
+      "source": "./skills/video-notes-creator",
+      "description": "Turn a YouTube video into visual study notes (PDF) with the speaker's real slides, timestamps, and linked resources. No video download.",
+      "category": "productivity"
+    }
+  ]
+}

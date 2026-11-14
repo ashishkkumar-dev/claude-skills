@@ -1,0 +1,8 @@
+{
+  "name": "video-notes-creator",
+  "version": "1.0.0",
+  "description": "Turn a YouTube video into visual study notes (PDF) with the speaker's real slides, timestamps, and linked resources. No video download.",
+  "author": { "name": "ashishkkumar-dev" },
+  "license": "MIT",
+  "keywords": ["youtube", "notes", "slides", "pdf", "study"]
+}

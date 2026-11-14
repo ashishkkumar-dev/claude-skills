@@ -1,0 +1,7 @@
+yt-dlp
+youtube-transcript-api
+Pillow
+matplotlib
+reportlab
+pymupdf
+imageio-ffmpeg
