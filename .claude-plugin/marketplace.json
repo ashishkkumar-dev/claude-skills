@@ -10,6 +10,12 @@
       "source": "./skills/video-notes-creator",
       "description": "Turn a YouTube video into visual study notes (PDF) with the speaker's real slides, timestamps, and linked resources. No video download.",
       "category": "productivity"
+    },
+    {
+      "name": "response-formats",
+      "source": "./skills/response-formats",
+      "description": "Give each Claude reply a fixed structure, selected from the intent of the current message and the context of the chat.",
+      "category": "productivity"
     }
   ]
 }

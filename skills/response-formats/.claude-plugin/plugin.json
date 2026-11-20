@@ -1,0 +1,15 @@
+{
+  "name": "response-formats",
+  "version": "0.1.0",
+  "description": "Give each Claude reply a fixed structure, selected from the intent of the current message and the context of the chat.",
+  "author": {
+    "name": "ashishkkumar-dev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "writing",
+    "formatting",
+    "ste100",
+    "replies"
+  ]
+}
