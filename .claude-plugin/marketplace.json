@@ -16,6 +16,12 @@
       "source": "./skills/response-formats",
       "description": "Give each Claude reply a fixed structure, selected from the intent of the current message and the context of the chat.",
       "category": "productivity"
+    },
+    {
+      "name": "flow-notes-html",
+      "source": "./skills/flow-notes-html",
+      "description": "Build or revise an interactive HTML study page that explains a technical flow end to end, with one example and many diagrams.",
+      "category": "productivity"
     }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "name": "flow-notes-html",
+  "version": "0.1.0",
+  "description": "Build or revise an interactive HTML study page that explains a technical flow end to end, with one example and many diagrams.",
+  "author": {
+    "name": "ashishkkumar-dev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "html",
+    "diagrams",
+    "learning",
+    "ste100"
+  ]
+}
