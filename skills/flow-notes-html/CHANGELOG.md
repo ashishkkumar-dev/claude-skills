@@ -10,6 +10,5 @@ First version.
 - A click on a step card opens it full screen.
 - Content rules: diagrams for flows, tables only for lookup values, a name next to every number, one definition for each term, ASD-STE100, short text.
 - Change rules: revise, do not rebuild; "show it here first" means chat only; feedback format when the user retells the flow.
-- assets/template.html: a tested starter page with a data block and a reusable engine.
-- references/example-postgres-internals.html: the full example that this skill was built from.
+- Source files: skeleton.html and data.example.js (edited), style.css and engine.js (never read). scripts/build_page.py builds one HTML page and splits a built page back, so a revision does not read the style or the engine.
 - A PDF is made only on request.

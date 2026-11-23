@@ -7,7 +7,17 @@ description: Build or revise an interactive HTML study page that explains a tech
 
 Build one self-contained HTML page that teaches a technical flow with one example, many diagrams and little text. The page is for learning and for fast revision.
 
-Reference example: `references/example-postgres-internals.html` ("Postgres Internals: Request to RAM", 4 parts). Copy its patterns. Starter code: `assets/template.html`. Both files are in Ashish's git repo `claude-skills/flow-notes-html/`. If they are not available, rebuild from the "Engine" section below.
+## Files of this skill
+
+| File | Read it? | Purpose |
+|---|---|---|
+| `assets/skeleton.html` (6 KB) | yes | the page markup: overview, tabs, empty sections |
+| `assets/data.example.js` (4 KB) | yes | the DATA block: overview, tree, steps, init |
+| `assets/style.css` (15 KB) | **no** | colours and layout; never change it |
+| `assets/engine.js` (15 KB) | **no** | stepper, blocks, tree highlight, reader, links, term index |
+| `scripts/build_page.py` | no, only run it | joins the 4 files into one HTML page, or splits a page back |
+
+Never open `style.css` or `engine.js`. The "Engine" section below tells you all that you need. If the files are not available, rebuild them from that section.
 
 ## When to use
 
@@ -20,9 +30,12 @@ Reference example: `references/example-postgres-internals.html` ("Postgres Inter
 1. Settle the example input first: one concrete example that goes through the whole flow (for example, `UPDATE accounts SET balance = 500 WHERE id = 7`). Fix its values (names, IDs, numbers, positions) and use the same values in every part.
 2. Split the flow into parts (tabs), one for each stage. Usually 2 to 4 parts.
 3. Gather and check the facts. Run real commands when you can (for example, a local server). Label each value as measured or as an example. Write "Not verified" when you cannot check a fact.
-4. Copy `assets/template.html`. Fill the DATA block of the script and the section markup. Do not change the ENGINE block, except to fix a bug.
-5. Test (see "Checks"). Then publish the page as an artifact. Revise the same artifact later.
-6. Reply with a short "Changed:" list. Do not repeat the page content in chat.
+4. Copy `assets/skeleton.html` to `page.html` and `assets/data.example.js` to `data.js` in a work folder. Fill the markup of `page.html` and the DATA of `data.js`.
+5. Build: `python3 scripts/build_page.py build page.html data.js out.html`.
+6. Test `out.html` (see "Checks"). Then publish it as an artifact. Keep `page.html` and `data.js` for the next change.
+7. Reply with a short "Changed:" list. Do not repeat the page content in chat.
+
+**To revise a page in a new session:** get the built HTML, run `python3 scripts/build_page.py split built.html src/`, edit `src/page.html` and `src/data.js`, then build again. Do not read the whole built page.
 
 ## Page structure
 
@@ -45,7 +58,7 @@ Reference example: `references/example-postgres-internals.html` ("Postgres Inter
 - Body: the diagram first, with the real values of the example. Then at most 3 short points.
 - At most 3 new terms in a step: `[id, "Plain meaning (name)", "definition", "Example: ..."]`.
 - A heavy step uses `subs` (blocks). Each block has a title, its own `files`, its own html and its own terms. The engine shows pills and Previous/Next block buttons.
-- A deep topic that needs many diagrams goes in a drawer: a button in the step opens a panel of parts with Previous/Next (see the "See how the index works" drawer in the reference example). Use a drawer only when blocks are not enough.
+- A deep topic that needs many diagrams goes in a drawer. Use a drawer only when blocks are not enough. A drawer is a hidden `<div>` under the flow section with 3 to 5 parts. A button in the step body shows it. It has pills for the parts, Previous and Next part buttons, a Close button, and `data-files` on each part for the tree highlight. Add its small script to `data.js`.
 
 ## Content rules
 
@@ -73,9 +86,9 @@ Reference example: `references/example-postgres-internals.html` ("Postgres Inter
 - Check by eye that no text crosses a box edge, an arrow or another text. Shorten the text or widen the box.
 - In a JS template literal (step body), do not use backticks or `${`.
 
-## Engine (in assets/template.html)
+## Engine (assets/engine.js)
 
-The ENGINE block gives these functions; the DATA block feeds them:
+The engine gives these functions; `data.js` feeds them and calls them in `initPage()`:
 
 - `OVERVIEW` → `drawOverview()`: the top diagram (snake layout, 4 boxes for each row) and the step list.
 - `TREE` → `buildTree()`; `highlight(files, label)`; `SECTION_FILES` for sections without a stepper; `watchSections()` follows the scroll.
@@ -85,11 +98,11 @@ The ENGINE block gives these functions; the DATA block feeds them:
 - Reader: a click on `.flow .panel` opens it full screen; Esc closes it.
 - Term index: `<ul class="index" data-index-for="panelN">` collects the section terms and the step terms of that tab.
 
-If the template file is missing, rebuild these parts from this list and from the reference example.
+The engine runs `initPage()` from `data.js` at the end. `initPage()` calls `buildTree()`, `drawOverview()`, one `makeStepper()` for each flow section, `buildTermIndexes()` and `watchSections()`.
 
 ## Checks before each publish
 
-1. Extract the script and run `node --check` on it.
+1. Run `node --check data.js`.
 2. Open the page in Playwright. Confirm no page errors or console errors.
 3. Click through the overview links, each stepper, the blocks, the reader and each tab.
 4. Take a screenshot of each changed step or section, and look at it for clipped or overlapping text.

@@ -14,20 +14,25 @@ Notes about a complex flow (for example, a database update from the client to th
 4. **A side tree** (for example, a folder tree) highlights the items that the current step uses.
 5. **A step card** shows a diagram first and little text. A click opens it full screen.
 
-The page is one self-contained HTML file. `assets/template.html` has the engine (stepper, blocks, tree highlight, reader, links, term index); a new page only fills in its data.
+The page is one self-contained HTML file. A script joins it from 4 small files: the page markup and the data of the topic (Claude writes these), and the style and the engine (Claude never reads these). Thus a new page costs about 10 KB of reading, not the whole page.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `SKILL.md` | Instructions for Claude |
-| `assets/template.html` | Starter page with the data block and the engine |
-| `references/example-postgres-internals.html` | The full example: Postgres from request to RAM, processing in RAM, WAL to ClickHouse, and the Siphon code |
+| `assets/skeleton.html` | Page markup with empty sections (Claude edits a copy) |
+| `assets/data.example.js` | Overview, tree and steps of the topic (Claude edits a copy) |
+| `assets/style.css` | Colours and layout (never read) |
+| `assets/engine.js` | Stepper, blocks, tree highlight, reader, links, term index (never read) |
+| `scripts/build_page.py` | `build`: join the files into one page. `split`: get the editable files back from a built page. |
+| `tests/` | Build and split tests |
 
 ## Results
 
-- The example page has 4 parts and about 40 steps. Each step was checked in a headless browser for script errors and clipped text.
-- The template passes the same checks: no script errors; overview links, blocks, reader, tabs and term index work.
+- Built from a real page with 4 parts and about 40 steps (Postgres from request to RAM, WAL to ClickHouse, and the Siphon code).
+- The example build has no script errors. Overview links, blocks, the reader, tabs and the term index work in a headless browser.
+- `split` then `build` gives back the same page, byte for byte (tests).
 
 ## Limits
 
