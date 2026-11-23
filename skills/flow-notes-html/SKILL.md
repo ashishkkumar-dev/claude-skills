@@ -5,7 +5,7 @@ description: Build or revise an interactive HTML study page that explains a tech
 
 # Flow notes HTML
 
-Build one self-contained HTML page that teaches a technical flow with one example, many diagrams and little text. The page is for learning and for fast revision.
+Build one self-contained HTML page that teaches a technical flow with one example, many diagrams and little text. The page is for learning and for fast revision. Its depth must match the notes of a top senior expert in the domain (see "Depth standard"): a senior SDE for software, a senior researcher for physics, a senior robotics engineer for robotics.
 
 ## Files of this skill
 
@@ -29,12 +29,13 @@ Never open `style.css` or `engine.js`. The "Engine" section below tells you all 
 
 1. Settle the example input first: one concrete example that goes through the whole flow (for example, `UPDATE accounts SET balance = 500 WHERE id = 7`). Fix its values (names, IDs, numbers, positions) and use the same values in every part.
 2. Split the flow into parts (tabs) with the rule in "Choosing the parts".
-3. Show the plan in chat and wait for Ashish to confirm it: the example input, then one line for each part (name, where it ends, which branches it holds). A wrong cut costs a full rebuild.
-4. Gather and check the facts. Run real commands when you can (for example, a local server). Label each value as measured or as an example. Write "Not verified" when you cannot check a fact.
-5. Copy `assets/skeleton.html` to `page.html` and `assets/data.example.js` to `data.js` in a work folder. Fill the markup of `page.html` and the DATA of `data.js`.
-6. Build: `python3 scripts/build_page.py build page.html data.js out.html`.
-7. Test `out.html` (see "Checks"). Then publish it as an artifact. Keep `page.html` and `data.js` for the next change.
-8. Reply with a short "Changed:" list. Do not repeat the page content in chat.
+3. Make the coverage map (see "Depth standard", gate 1).
+4. Show the plan in chat and wait for Ashish to confirm it: the example input, one line for each part (name, where it ends, which branches it holds), and the coverage map. A wrong cut or a missing concept costs a full rebuild.
+5. Gather and check the facts. Run real commands when you can (for example, a local server). Label each value as measured or as an example. Write "Not verified" when you cannot check a fact.
+6. Copy `assets/skeleton.html` to `page.html` and `assets/data.example.js` to `data.js` in a work folder. Fill the markup of `page.html` and the DATA of `data.js`.
+7. Build: `python3 scripts/build_page.py build page.html data.js out.html`.
+8. Test `out.html` (see "Checks"), and run the expert-question test (gate 2). Then publish it as an artifact. Keep `page.html` and `data.js` for the next change.
+9. Reply with a short "Changed:" list and the gaps from gate 2, if any. Do not repeat the page content in chat.
 
 **To revise a page in a new session:** get the built HTML, run `python3 scripts/build_page.py split built.html src/`, edit `src/page.html` and `src/data.js`, then build again. Do not read the whole built page.
 
@@ -59,6 +60,53 @@ A part is one tab. Decide the parts with these rules, in this order:
 7. Keep the total at 2 to 5 parts.
 
 Example (Postgres page): "Request to RAM" ends when the page is in shared_buffers. "Processing in RAM" ends when COMMIT returns. "WAL to ClickHouse" starts when the WAL sender reads the WAL later. "Siphon: the code" is a lens part.
+
+## Depth standard
+
+The happy path of one example is not enough. A senior expert also explains the choices, the structures, the scale and the failures. Use these gates.
+
+### Core depth questions (ask them at every step)
+
+1. **Lookup:** how does the system find the next item? Name the key, the structure that it searches and the number of reads. Never hide a lookup inside "it finds X". Example: "find the row for id = 7" must show the B-tree search, metapage → top page → leaf → (42,3).
+2. **Decision point:** where does the system choose between paths? Name what decides the choice and show every option. Example: index scan vs seq scan, decided by the row estimate.
+3. **Structure and cost:** which data structure or model holds the data here? Give its shape and the cost of one operation. Example: about 367 keys for each B-tree leaf page.
+4. **Scale:** what changes when the input is 1000 times larger? Example: a GB-size index does not fit in shared_buffers.
+5. **Failure and concurrency:** what happens on a crash, a timeout or two writers at the same time? Example: a crash before the WAL fsync.
+6. **Real numbers:** give real sizes, limits and defaults, each with its unit and its name. Example: WAL segment 16 MB.
+
+### Domain depth questions (add them to the core questions)
+
+| Domain | Expert standard | Added questions |
+|---|---|---|
+| Software | senior SDE | cost in I/O, memory and latency; configuration limits; how to observe it (a command, a view, a metric) |
+| Physics | senior researcher | assumptions and where they stop being true; derivation of the key equation; order of magnitude; the experiment that proves it |
+| Robotics | senior robotics engineer | sense → estimate → plan → act loop; latency budget; failure modes and safety; simulation vs the real robot |
+
+Columns: Domain = the topic area; Expert standard = whose level the page must reach; Added questions = what to ask in addition to the core questions.
+
+For a domain that is not in the table, write 3 or 4 added questions of the same kind. Show them in the coverage map.
+
+### Gate 1: coverage map (before the build)
+
+1. Run the core questions and the domain questions over each step of the plan.
+2. Find 2 or 3 canonical sources (the official docs, a standard textbook, a key paper). Compare their tables of contents with the list.
+3. Write the coverage map. Each item is a concept, a decision point or an edge case. Mark it with its place (part and step, block, drawer or edge case), or with "out of scope, because ...".
+4. Show the map with the part plan. Ashish approves it or adds items.
+
+### Placement of depth
+
+- The main step stays short: the diagram and at most 3 points.
+- The depth goes into blocks, drawers and edge-case cards.
+
+### Gate 2: expert-question test (after the build)
+
+1. Write 10 questions that a senior interviewer or a thesis examiner would ask about the topic. Example: "When does Postgres choose a seq scan instead of an index scan?"
+2. For each question, find the step, block or edge case that answers it.
+3. Add the missing content, or list the question as a gap in the reply.
+
+### Gate 3: independent review (only when Ashish asks for a "deep review")
+
+Start a separate agent that did not write the page. Give it only the built page, the depth questions and the coverage map. It returns a list of gaps. Fix the gaps or report them.
 
 ## Page structure
 
@@ -130,6 +178,7 @@ The engine runs `initPage()` from `data.js` at the end. `initPage()` calls `buil
 3. Click through the overview links, each stepper, the blocks, the reader and each tab.
 4. Take a screenshot of each changed step or section, and look at it for clipped or overlapping text.
 5. Confirm that wide code or tables do not push the side panel out of place (`min-width: 0` on grid children).
+6. Confirm that gate 2 is done: each of the 10 expert questions has an answer in the page, or it is in the reply as a gap.
 
 ## Output
 
