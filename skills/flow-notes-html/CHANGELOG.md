@@ -12,3 +12,4 @@ First version.
 - Change rules: revise, do not rebuild; "show it here first" means chat only; feedback format when the user retells the flow.
 - Source files: skeleton.html and data.example.js (edited), style.css and engine.js (never read). scripts/build_page.py builds one HTML page and splits a built page back, so a revision does not read the style or the engine.
 - A PDF is made only on request.
+- SKILL.md: "Choosing the parts" rule (cut at handoff points, 4 to 12 steps for each part, where branches and lens parts go), and a plan that Ashish confirms before the build.

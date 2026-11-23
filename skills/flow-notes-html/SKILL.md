@@ -28,14 +28,37 @@ Never open `style.css` or `engine.js`. The "Engine" section below tells you all 
 ## Workflow
 
 1. Settle the example input first: one concrete example that goes through the whole flow (for example, `UPDATE accounts SET balance = 500 WHERE id = 7`). Fix its values (names, IDs, numbers, positions) and use the same values in every part.
-2. Split the flow into parts (tabs), one for each stage. Usually 2 to 4 parts.
-3. Gather and check the facts. Run real commands when you can (for example, a local server). Label each value as measured or as an example. Write "Not verified" when you cannot check a fact.
-4. Copy `assets/skeleton.html` to `page.html` and `assets/data.example.js` to `data.js` in a work folder. Fill the markup of `page.html` and the DATA of `data.js`.
-5. Build: `python3 scripts/build_page.py build page.html data.js out.html`.
-6. Test `out.html` (see "Checks"). Then publish it as an artifact. Keep `page.html` and `data.js` for the next change.
-7. Reply with a short "Changed:" list. Do not repeat the page content in chat.
+2. Split the flow into parts (tabs) with the rule in "Choosing the parts".
+3. Show the plan in chat and wait for Ashish to confirm it: the example input, then one line for each part (name, where it ends, which branches it holds). A wrong cut costs a full rebuild.
+4. Gather and check the facts. Run real commands when you can (for example, a local server). Label each value as measured or as an example. Write "Not verified" when you cannot check a fact.
+5. Copy `assets/skeleton.html` to `page.html` and `assets/data.example.js` to `data.js` in a work folder. Fill the markup of `page.html` and the DATA of `data.js`.
+6. Build: `python3 scripts/build_page.py build page.html data.js out.html`.
+7. Test `out.html` (see "Checks"). Then publish it as an artifact. Keep `page.html` and `data.js` for the next change.
+8. Reply with a short "Changed:" list. Do not repeat the page content in chat.
 
 **To revise a page in a new session:** get the built HTML, run `python3 scripts/build_page.py split built.html src/`, edit `src/page.html` and `src/data.js`, then build again. Do not read the whole built page.
+
+## Choosing the parts
+
+A part is one tab. Decide the parts with these rules, in this order:
+
+1. List all the steps of the example, from start to end.
+2. Mark each handoff point between two steps. A handoff point is a place where one of these changes:
+   - the owner of the data (for example, backend process → WAL sender → client);
+   - the medium (for example, network → RAM → disk);
+   - the time (for example, the reply to the client → work that runs later in the background).
+3. Cut the flow at the strongest handoff points.
+4. Check the size of each segment:
+   - fewer than 4 steps: merge it with the next or previous segment;
+   - 4 to 12 steps: keep it as one part;
+   - more than 12 steps: cut it again at the next handoff point.
+5. Put each branch (another path for a condition, for example HOT update vs normal update) in the correct place:
+   - a branch with 1 to 3 steps of its own: blocks in the step, or an edge-case card;
+   - a branch with 4 or more steps and its own handoff point: its own part.
+6. Put a lens part after all the flow parts. A lens part shows the same flow from a different angle, for example the code of one tool.
+7. Keep the total at 2 to 5 parts.
+
+Example (Postgres page): "Request to RAM" ends when the page is in shared_buffers. "Processing in RAM" ends when COMMIT returns. "WAL to ClickHouse" starts when the WAL sender reads the WAL later. "Siphon: the code" is a lens part.
 
 ## Page structure
 
