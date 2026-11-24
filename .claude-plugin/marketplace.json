@@ -22,6 +22,12 @@
       "source": "./skills/flow-notes-html",
       "description": "Build or revise an interactive HTML study page that explains a technical flow end to end, with one example and many diagrams.",
       "category": "productivity"
+    },
+    {
+      "name": "open-source-repo-explorer",
+      "source": "./skills/open-source-repo-explorer",
+      "description": "Learn an open source repository and make a first contribution that maintainers accept. Gives one HTML page with project health, an architecture map, a traced flow, live issue status and a contribution plan.",
+      "category": "development"
     }
   ]
 }
