@@ -8,7 +8,7 @@ Agent Skills for Claude Code and claude.ai. Each skill does one job. Skills that
 
 | Skill | What it does | Version |
 |---|---|---|
-| [video-notes-creator](skills/video-notes-creator) | Turns a YouTube video into visual study notes (PDF) with the speaker's real slides, timestamps, and linked resources. Never downloads the video. | 1.1.0 |
+| [video-notes-creator](skills/video-notes-creator) | Turns a YouTube video into visual study notes (a web page) with the speaker's real slides, timestamps, and linked resources. Never downloads the video. | 2.0.0 |
 | [response-formats](skills/response-formats) | Gives each reply a fixed structure, selected from the intent of the current message and the context of the chat. | 0.1.0 |
 | [flow-notes-html](skills/flow-notes-html) | Builds an interactive HTML study page that explains a technical flow end to end, with one example and many diagrams. | 0.1.0 |
 

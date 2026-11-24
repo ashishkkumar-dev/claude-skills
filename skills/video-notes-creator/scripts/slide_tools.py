@@ -11,8 +11,10 @@
         on screen. Times are exact to about 2 seconds.
         --storyboard: use YouTube's thumbnail strip (one picture each 10 s, about
         1 MB for a 40-minute video). Also the automatic fallback.
-        Writes contact sheets (max N candidates, default 144), tiles/, inventory.txt.
-        A page (paper or slide) is kept even if it shows for less than MIN_HOLD seconds.
+        A slow animation or zoom is split into several pictures.
+        Each picture is a slide (still and flat), a camera shot (moving and not flat,
+        dropped), or "check by eye" (one of the two). Colour does not matter.
+        Writes contact sheets (max N candidates, default 144, slides first), tiles/, inventory.txt.
 
   grab  URL OUT_DIR [--match SCAN_DIR/tiles] TIME ...
         Full-res frames at the given times (mm:ss or h:mm:ss), read straight from
@@ -23,16 +25,18 @@
 Needs: yt-dlp, youtube-transcript-api, Pillow, and ffmpeg (system binary or the imageio-ffmpeg package).
 """
 import io, os, re, shutil, subprocess, sys, threading, time, urllib.request
+from collections import Counter
 
 from PIL import Image, ImageDraw
 
 STEP = 2       # dense pass: seconds between looked-at frames
-MIN_HOLD = 4   # dense pass: a picture must stay this many seconds to count
 DUP = 7.0      # mean abs diff (0-255) on a 16x9 thumb: below this, same picture as the frame before
-VIEW = 16.0    # below this, two pictures show the same camera view (speaker, stage)
-VIEW_MIN = 6   # a view that returns this many times is a camera view, not a slide
-PAPER = 0.35   # share of near-white or near-black pixels: above this, the picture can be a page...
-PAGE_SAT = 12  # ...if its mean saturation (max - min channel, 0-255) is also below this. Dark studio shots are colorful.
+DRIFT = 3.0    # mean abs diff on a 64x36 grey thumb from a picture's first frame: from this on, a new picture
+STILL_DRIFT = 1.2   # in a still picture (typing in an editor) a smaller drift starts a new picture; live boxes do not count
+# Slide or camera shot. Colour does not matter: a slide can be white, black, navy, yellow, or green.
+STILL_BOX = 1.0     # a box of the 64x36 grey thumb whose mean change between two frames is below this is still
+STILL_SHARE = 0.8   # still picture: at least this share of its 48 boxes (8 x 6) stay still. A webcam corner is 2 or 3 boxes.
+FLAT = 0.35         # flat picture: its most common shade (16 levels per channel) covers at least this share
 COLS, TILE_W, TW, TH = 6, 240, 320, 180
 
 
@@ -68,22 +72,23 @@ def dist(a, b):
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def paper(im):
-    """Share of near-white or near-black pixels."""
-    b = im.convert("RGB").resize((32, 18), Image.BILINEAR).tobytes()
-    px = [b[i:i + 3] for i in range(0, len(b), 3)]
-    return sum(1 for q in px if min(q) > 225 or max(q) < 35) / len(px)
+def one_shade(im):
+    """Share of the picture covered by its most common shade (16 levels per channel). Any colour counts:
+    a slide background is one shade; a camera shot spreads over many shades."""
+    b = im.convert("RGB").resize((160, 90), Image.BOX).tobytes()
+    c = Counter((b[i] >> 4, b[i + 1] >> 4, b[i + 2] >> 4) for i in range(0, len(b), 3))
+    return c.most_common(1)[0][1] * 3 / len(b)
 
 
-def saturation(im):
-    b = im.convert("RGB").resize((32, 18), Image.BILINEAR).tobytes()
-    px = [b[i:i + 3] for i in range(0, len(b), 3)]
-    return sum(max(q) - min(q) for q in px) / len(px)
+def box_changes(f, prev):
+    """Mean change of each of the 48 boxes (8 x 6 on the 64x36 grey thumb) between two frames."""
+    return [sum(abs(f[y * 64 + x] - prev[y * 64 + x]) for y in range(by * 6, by * 6 + 6) for x in range(bx * 8, bx * 8 + 8)) / 48
+            for by in range(6) for bx in range(8)]
 
 
-def is_page(im):
-    """A slide or paper page: mostly plain white or black background, and almost no color."""
-    return paper(im) >= PAPER and saturation(im) < PAGE_SAT
+def still_share(f, prev):
+    """Share of the 48 boxes that did not change between two frames."""
+    return sum(1 for c in box_changes(f, prev) if c < STILL_BOX) / 48
 
 
 def fetch(url, tries=4):
@@ -99,28 +104,62 @@ def headers(f):
     return "".join(f"{k}: {v}\r\n" for k, v in (f.get("http_headers") or {}).items())
 
 
+def fine(im):
+    """64x36 grey signature: sees thin lines on a dark background that the 16x9 signature misses."""
+    return list(im.convert("L").resize((64, 36), Image.BILINEAR).tobytes())
+
+
 class Runs:
-    """Merge consecutive frames that show the same picture. Keep the LAST frame: slide builds are complete there."""
+    """Merge consecutive frames that show the same picture. Keep the LAST frame: slide builds are complete there.
+    A slow change (a zoom, a growing wave) differs little from frame to frame, so it would merge into one picture
+    and only its end state would be kept. When a picture drifts DRIFT or more from its first frame, start a new one.
+    A screen where someone types stays still almost everywhere, so it drifts very slowly. In a still picture, a drift of
+    STILL_DRIFT starts a new picture, when the screen holds still for a moment. Live boxes (a webcam, a playing video:
+    boxes that move in most frames) do not count, so a webcam corner cannot split a slide."""
     def __init__(self): self.runs = []
+    def edited(self, last, f, ch):
+        """A still picture whose content changed by STILL_DRIFT, outside live boxes, and that holds still now."""
+        if not last["still"] or sum(last["still"]) / len(last["still"]) < STILL_SHARE: return False
+        n = len(last["still"]) + 1
+        live = [m > n / 2 for m in last["moves"]] if n >= 3 else [False] * 48
+        if any(c >= STILL_BOX and not l for c, l in zip(ch, live)): return False     # still typing: wait
+        d = [x for x, l in zip(box_changes(f, last["first"]), live) if not l]
+        return bool(d) and sum(d) / len(d) >= STILL_DRIFT
     def feed(self, t, im):
-        s = sig(im)
-        if self.runs and dist(s, self.runs[-1]["sig"]) < DUP: self.runs[-1].update(end=t, im=im, sig=s)
-        else: self.runs.append(dict(start=t, end=t, im=im, sig=s))
-
-
-def select(runs, dense=True, cap=144):
-    """Split runs into slide candidates and camera views. Return (runs, keep, cam, shown)."""
-    for r in runs: r["page"] = is_page(r["im"])
-    if dense: runs = [r for r in runs if r["end"] - r["start"] >= MIN_HOLD or r["page"]]   # a page can flash by
-    views = []      # a view that keeps coming back is a camera view (speaker, stage), not a slide...
-    for r in runs:
-        for v in views:
-            if dist(r["sig"], v["sig"]) < VIEW: v["n"] += 1; r["view"] = v; break
+        s, f = sig(im), fine(im)
+        last = self.runs[-1] if self.runs else None
+        same = last and dist(s, last["sig"]) < DUP and dist(f, last["first"]) < DRIFT
+        if same:
+            ch = box_changes(f, last["fine"])
+            last["moves"] = [m + (c >= STILL_BOX) for m, c in zip(last["moves"], ch)]
+            if self.edited(last, f, ch): same = False
+        if same:
+            last["still"].append(sum(1 for c in ch if c < STILL_BOX) / 48); last.update(end=t, im=im, sig=s, fine=f)
         else:
-            r["view"] = dict(sig=r["sig"], n=1); views.append(r["view"])
-    for r in runs: r["cam"] = r["view"]["n"] >= VIEW_MIN and not r["page"]   # ...unless it looks like a page
-    keep, cam = [r for r in runs if not r["cam"]], [r for r in runs if r["cam"]]
-    shown = sorted(sorted(keep, key=lambda r: r["start"] - r["end"])[:cap], key=lambda r: r["start"])   # longest holds first if too many
+            if last and dist(s, last["sig"]) < DUP: last["mid"] = True    # cut by drift: a middle state of a slow change
+            self.runs.append(dict(start=t, end=t, im=im, sig=s, first=f, fine=f, still=[], moves=[0] * 48))
+
+
+def decide(r):
+    """slide: still and flat. camera: moving and not flat. check: one of the two, or one frame that is flat.
+    A picture seen in only one frame cannot be tested for stillness."""
+    st = r.get("still") or []
+    still = sum(st) / len(st) >= STILL_SHARE if st else None
+    flat = one_shade(r["im"]) >= FLAT
+    if still and flat: return "slide"
+    if not still and not flat: return "camera"
+    return "check"
+
+
+def select(runs, cap=144):
+    """Sort runs into slides, check-by-eye pictures, and camera shots. Return (runs, keep, cam, shown).
+    keep = slides and check-by-eye pictures. shown = the ones on the contact sheets. First the pictures that end a change
+    (the complete state, as a slide with all its builds), slides before check-by-eye, longest first. Then the middle
+    states of slow animations. So typing or scrolling in a screen recording cannot push whole screens off the sheets."""
+    for r in runs: r["dec"] = decide(r)
+    keep, cam = [r for r in runs if r["dec"] != "camera"], [r for r in runs if r["dec"] == "camera"]
+    order = lambda r: (r.get("mid", False), r["dec"] != "slide", r["start"] - r["end"])
+    shown = sorted(sorted(keep, key=order)[:cap], key=lambda r: r["start"])
     return runs, keep, cam, shown
 
 
@@ -185,7 +224,7 @@ def scan(url, out, storyboard=False, cap=144):
             print("dense pass failed, using the storyboard:", e); mode, R = "storyboard", Runs()
     if mode == "storyboard":
         for t, im in frames_storyboard(d): R.feed(t, im)
-    runs, keep, cam, shown = select(R.runs, mode == "dense", cap)
+    runs, keep, cam, shown = select(R.runs, cap)
     h = int(TILE_W * TH / TW); per = COLS * 8; sheets = []
     for k in range(0, len(shown), per):
         part = shown[k:k + per]
@@ -193,17 +232,20 @@ def scan(url, out, storyboard=False, cap=144):
         for j, r in enumerate(part):
             x, y = (j % COLS) * TILE_W, (j // COLS) * (h + 16)
             sh.paste(r["im"].resize((TILE_W, h), Image.LANCZOS), (x, y + 16))
-            dr.text((x + 3, y + 3), fmt(r["end"], long) if r["start"] == r["end"] else f"{fmt(r['start'], long)}-{fmt(r['end'], long)}", fill=(200, 0, 0))
+            label = fmt(r["end"], long) if r["start"] == r["end"] else f"{fmt(r['start'], long)}-{fmt(r['end'], long)}"
+            check = r["dec"] == "check"   # amber "check" = the code is not sure: a slide, or a camera shot
+            dr.text((x + 3, y + 3), label + ("  check" if check else ""), fill=(190, 110, 0) if check else (200, 0, 0))
         p = os.path.join(out, f"sheet_{k // per + 1}.jpg"); sh.save(p, quality=80); sheets.append(p)
     with open(os.path.join(out, "inventory.txt"), "w") as f:
-        f.write(f"# {d.get('title')} | {fmt(d['duration'], long)} | {mode} pass\n# slide candidates: start-end, * = on a contact sheet. Grab at the end time, where slide builds are complete.\n")
+        f.write(f"# {d.get('title')} | {fmt(d['duration'], long)} | {mode} pass\n# slide candidates: start-end, * = on a contact sheet, (check by eye) = still or flat but not both. Grab at the end time, where slide builds are complete.\n")
         for r in keep:
-            brief = " (brief page)" if r["end"] - r["start"] < MIN_HOLD else ""
-            f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}{' *' if r in shown else ''}{brief}\n")
+            note = " (check by eye)" if r["dec"] == "check" else ""
+            f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}{' *' if r in shown else ''}{note}\n")
             r["im"].save(os.path.join(out, "tiles", fmt(r["end"], long).replace(":", "") + ".jpg"), quality=85)
-        f.write("# camera views (no clean slide; a slide may still show on a stage screen)\n")
+        f.write("# camera shots: moving and not flat (a slide may still show on a stage screen)\n")
         for r in cam: f.write(f"{fmt(r['start'], long)}-{fmt(r['end'], long)}\n")
-    print(f"pictures that stay on screen: {len(runs)}  slide candidates: {len(keep)} ({len(shown)} on sheets)  camera views dropped: {len(cam)}")
+    n_check = sum(1 for r in keep if r["dec"] == "check")
+    print(f"pictures: {len(runs)}  slides: {len(keep) - n_check}  check by eye: {n_check}  ({len(shown)} on sheets)  camera shots dropped: {len(cam)}")
     print("sheets:", *sheets, sep="\n  ")
 
 

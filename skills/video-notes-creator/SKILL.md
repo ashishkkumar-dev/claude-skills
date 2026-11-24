@@ -1,6 +1,6 @@
 ---
 name: video-notes-creator
-description: Turn one video into visual study notes (PDF). Uses the speaker's own slides as figures and draws a concept diagram only where no usable slide exists.
+description: Turn one video into visual study notes (an HTML page). Uses the speaker's own slides as figures and draws a concept diagram only where no usable slide exists.
 ---
 
 # Role
@@ -15,7 +15,7 @@ Do not fetch the video, run a script, or write a file until you know these two t
    - What the reader already knows, so that you do not explain it.
    - Optional: the goal for this video, and sections to skip.
 2. Output path
-   - The folder for the notes. Make one subfolder per video, named from the video title (lowercase, hyphens). Put the Markdown, the PDF, and a `figures` folder in it.
+   - The folder for the notes. Make one subfolder per video, named from the video title (lowercase, hyphens). Put the notes Markdown, the HTML page built from it, and a `figures` folder in it.
    - Keep work files (scan sheets, frames, transcript, virtual environment) in a temporary or scratch folder, not in the output path.
 
 How to get them:
@@ -60,16 +60,19 @@ Write for the reader profile from "Before you start".
 
 # Workflow
 Do these steps in order. Do the full job in one session. Do "Before you start" first.
-Setup: `slide_tools.py` and `build_pdf.py` are in the `scripts` folder of this skill. Install `requirements.txt` from this skill folder in a virtual environment in a scratch or temporary folder. If ffmpeg is not installed, the `imageio-ffmpeg` package supplies it.
+Setup: `slide_tools.py` and `build_html.py` are in the `scripts` folder of this skill. Install `requirements.txt` from this skill folder in a virtual environment in a scratch or temporary folder. If ffmpeg is not installed, the `imageio-ffmpeg` package supplies it.
 1. Get the transcript with timestamps, and the title, channel, date, length, chapter list, and video description. Run:
    `python <skill folder>/scripts/slide_tools.py transcript <url> <work_dir>`
    It writes `transcript.txt` (one line per minute) and `meta.json`. The description often lists the links to the resources.
    If the transcript is too long to read in one step, read it in parts. After each part, save a digest to disk: time, claim, example, numbers, names.
 2. Find the slides. Do not save the video. Run:
    `python <skill folder>/scripts/slide_tools.py scan <url> <scan_dir>`
-   The script reads the smallest video stream one time (about 0.2 to 0.8 MB per minute of video) and looks at one frame each 2 seconds. It keeps the last frame of each picture that stays on screen, so slide builds are complete and times are exact to 2 seconds. It drops camera views that keep coming back. It writes contact sheets of slide candidates and `inventory.txt`. If the stream cannot be read, it uses the storyboard (one picture each 10 seconds).
-   A page that shows for less than 4 seconds is kept and marked "(brief page)" in `inventory.txt`. These are often paper title pages, posts, or articles. Check them for names, titles, and URLs.
-3. Look at the contact sheets one time. Make a slide inventory: time, slide title, and the idea it supports. `inventory.txt` also lists the camera-view ranges, where a slide can show only on the stage screen.
+   The script reads the smallest video stream one time (about 0.2 to 0.8 MB per minute of video) and looks at one frame each 2 seconds. It keeps the last frame of each picture that stays on screen, so slide builds are complete and times are exact to 2 seconds. A slow animation or zoom becomes several pictures, so its middle states are candidates too. So does typing in a screen recording: each pause after an edit ends a picture. Each picture is a slide (still and flat), a camera shot (moving and not flat, dropped), or "check by eye" (one of the two). Colour does not matter. It writes contact sheets of slide candidates and `inventory.txt`. If the stream cannot be read, it uses the storyboard (one picture each 10 seconds).
+   - Still: at least 80% of the picture's 48 boxes do not change between frames. A webcam corner is only 2 or 3 boxes.
+   - Flat: at least 35% of the picture is one shade, in any colour (white, black, navy, yellow, or green).
+   - "Check by eye" pictures have an amber "check" label on the sheets and "(check by eye)" in `inventory.txt`. They include slides with video inside, zooming paper pages, and speakers in front of a plain wall. Decide them by eye.
+   - The sheets show the complete state of each change first, then the middle states of animations.
+3. Look at the contact sheets one time. Make a slide inventory: time, slide title, and the idea it supports. `inventory.txt` also lists the camera-shot ranges, where a slide can show only on the stage screen.
 4. Outline the main ideas in video order. For each idea, select the visual with the rules below.
 5. Get only the selected slides at full resolution. Use the end time of each candidate. Run:
    `python <skill folder>/scripts/slide_tools.py grab <url> <figures_dir> --match <scan_dir>/tiles <time> <time> ...`
@@ -78,9 +81,10 @@ Setup: `slide_tools.py` and `build_pdf.py` are in the `scripts` folder of this s
 6. Look at `check.jpg` one time to confirm the frames. Open a slide at full size only when you must read small text from it.
 7. Correct the notes where a slide gives more exact data than the transcript (names, numbers, URLs).
    Auto-captions often misspell names. Check each speaker and product name against name captions, posts, and pages on screen, and the description. Mark a name that you cannot confirm "(spelling from captions)".
-8. Make the resource list (see "8. Resources"). Number it in video order. Then write the notes with the citations. Build the PDF:
-   `python <skill folder>/scripts/build_pdf.py <notes.md> <notes.pdf>`
-   The script makes the `[[n]](#ref-n)` citations, the `[text](url)` links, and the "Cited in" section links clickable.
+8. Make the resource list (see "8. Resources"). Number it in video order. Then write the notes with the citations. Build the page:
+   `python <skill folder>/scripts/build_html.py <notes.md> <notes.html>`
+   The script makes one web page: a contents bar on the left, clickable citations and links, a slider for each run of figures, and a full-size view on click.
+   It prints a warning for each missing image, each link to a missing anchor, and each sentence over 20 words. Fix each warning and build again.
 9. Do the figure review (see "Figure review"). Correct each figure that fails.
 
 If `slide_tools.py` is not available, do the same steps by hand:
@@ -96,7 +100,7 @@ Images and long sessions cost the most tokens. Obey these rules.
 - Image budget for slides: the scan sheets (max 3), one `check.jpg`, and max 5 slides at full size.
 - Let code do each check that code can do (same picture, image size, page count). Use your eyes only for meaning.
 - If you can start a subagent, do steps 2 and 3 there. Get back only the slide inventory as text. Then the scan images do not stay in the main conversation.
-- Preview the PDF pages on one low-resolution sheet. Zoom in on max 2 pages.
+- Do not take screenshots of the page. `build_html.py` checks images, links, and sentence length with code.
 - Do not paste the full notes in chat.
 
 # Visual selection (use the first rule that applies)
@@ -111,7 +115,7 @@ Rules for slides:
 - The contact sheets show the pictures that stay longest (max 144). `inventory.txt` lists all candidates. Check it where the transcript refers to a visual that is not on a sheet.
 - For a screen recording with no slides, use the frames of the speaker's diagrams, notes, and demos in the same way.
 - Do not use frames of the speaker, the audience, or the stage.
-- Put two related slides side by side when you must compare them (before and after, input and output).
+- Several frames for one idea: write their figure lines one after another, with only blank lines between them. The page shows them as one slider. Use it when the speaker builds an idea up over several frames: zoom in and out, before and after, step by step. Put the slider right under the section heading. Max 6 figures in one slider.
 - Do not use a slide that is only a title or a decoration.
 
 # Card diagram standard (for each generated figure)
@@ -123,8 +127,8 @@ A reader who has not seen the video must understand the figure without the body 
 - Layout has meaning. Use rows or columns for stages, layers, or "cause to effect". State the reading order in the subtitle.
 - Color has meaning. Use one color per category (for example: green for strengths, red for deficits). Do not use color for decoration.
 - Use only content from the video. Do not add facts to make a card look complete.
-- Draw with a real drawing tool (matplotlib, SVG, or HTML). Do not use Mermaid or Graphviz default output in the PDF.
-- Min font size in the PDF: 6.5 pt after scaling to the page width.
+- Draw with a real drawing tool (matplotlib, SVG, or HTML). Do not use Mermaid or Graphviz default output.
+- Keep each label readable when the figure is 900 pixels wide.
 
 Select the diagram form from the shape of the idea:
 - Analogy (A is like B): two columns of cards with one mapping arrow per pair.
@@ -146,7 +150,7 @@ Then check each example in the notes: does it say why the behavior happens, or "
 
 Then check the resources with code, not with your eyes:
 - Each citation number has a row in section 8, and each row except general tools is cited at least once.
-- Each internal link in the PDF goes to the correct row or section (pymupdf `get_links()`).
+- `build_html.py` prints no warning about links to missing anchors.
 - Each URL gives an answer (HTTP 200). A 401 or 403 from a known site is usually a bot block, so keep the link. If a page is gone, keep the link and write "Link seems to be offline now".
 
 # Captions
@@ -201,12 +205,13 @@ Columns: # | Resource | What it is | Link | Link from | [mm:ss] | Cited in
 - No filler, no idioms, no em dashes.
 
 # Deliverable and length
-- PDF is the main deliverable. Embed each figure as an image with its caption. Keep each heading on the same page as its first figure. Keep max half a page of text between two figures.
-- Citations, resource links, and "Cited in" links must be clickable in the PDF. Write them in the Markdown as `[[n]](#ref-n)`, `[text](url)`, and `[2.4](#sec-2.4)`. `build_pdf.py` makes an anchor `sec-<number>` for each numbered heading.
-- Save the figures in a "figures" folder and the notes source as Markdown, next to the PDF.
+- The HTML page is the main deliverable. Each figure shows with its caption; a run of figures shows as one slider.
+- Citations, resource links, and "Cited in" links are clickable. Write them in the Markdown as `[[n]](#ref-n)`, `[text](url)`, and `[2.4](#sec-2.4)`. `build_html.py` makes an anchor `sec-<number>` for each numbered heading.
+- Save the figures in a "figures" folder and the notes Markdown next to the page, so that the page can be built again after an edit.
+- Do not make a PDF unless I ask for one. The browser can print the page.
 - Chat reply: give links to the files, the figure count (slides, redrawn, generated), and the points that I must verify. Do not paste the full notes in chat.
 - If you cannot make files: write the notes as Markdown in chat. Describe each slide figure in one line with its [mm:ss]. Write each generated figure as a Mermaid code block with all labels in double quotes.
 - If the video is longer than 60 minutes, or your output limit is small, write sections 0 to 2 first. Then ask to continue.
 
 # Build report (only when I ask for cost or tokens)
-Give a table of token use per phase: transcript, slide scan, slide read, diagrams, writing, PDF build and review. Say which numbers are measured and which are estimates.
+Give a table of token use per phase: transcript, slide scan, slide read, diagrams, writing, page build and review. Say which numbers are measured and which are estimates.

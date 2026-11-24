@@ -8,7 +8,7 @@
     {
       "name": "video-notes-creator",
       "source": "./skills/video-notes-creator",
-      "description": "Turn a YouTube video into visual study notes (PDF) with the speaker's real slides, timestamps, and linked resources. No video download.",
+      "description": "Turn a YouTube video into visual study notes (a web page) with the speaker's real slides, timestamps, and linked resources. No video download.",
       "category": "productivity"
     },
     {

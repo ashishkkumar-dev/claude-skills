@@ -1,4 +1,5 @@
 import io
+import random
 
 from PIL import Image
 
@@ -26,18 +27,12 @@ def test_fmt_and_parse_round_trip():
 def test_same_picture_has_zero_distance_and_different_pictures_do_not():
     a, b = st.sig(solid((200, 50, 50))), st.sig(solid((50, 50, 200)))
     assert st.dist(a, a) == 0
-    assert st.dist(a, b) > st.VIEW
-
-
-def test_paper_detects_pages():
-    assert st.paper(solid((255, 255, 255))) == 1.0
-    assert st.paper(solid((10, 10, 10))) == 1.0
-    assert st.paper(solid((120, 90, 60))) == 0.0
+    assert st.dist(a, b) > st.DUP
 
 
 def test_runs_merge_same_picture_and_keep_the_last_frame():
     r = st.Runs()
-    first, build_step, last = solid((200, 50, 50)), solid((202, 52, 52)), solid((204, 54, 54))
+    first, build_step, last = solid((200, 50, 50)), solid((201, 51, 51)), solid((202, 52, 52))
     for t, im in ((0, first), (2, build_step), (4, last), (6, solid((50, 50, 200)))):
         r.feed(t, im)
     assert len(r.runs) == 2
@@ -45,30 +40,44 @@ def test_runs_merge_same_picture_and_keep_the_last_frame():
     assert r.runs[0]["im"] is last  # slide builds are complete in the last frame
 
 
-def test_select_drops_short_holds_in_dense_mode_only():
-    runs = [run(0, 2, (200, 50, 50)), run(4, 20, (50, 200, 50))]
-    _, keep, _, _ = st.select([dict(r) for r in runs], dense=True)
-    assert [r["start"] for r in keep] == [4]
-    _, keep, _, _ = st.select([dict(r) for r in runs], dense=False)
-    assert len(keep) == 2
+def test_slow_animation_is_split_so_its_middle_states_are_kept():
+    # A thin line grows across a dark screen: each 2-second step is small, but the end looks very different.
+    def frame(width):
+        im = Image.new("RGB", (320, 180), (10, 10, 10))
+        im.paste((240, 240, 240), (20, 84, 20 + width, 96))
+        return im
+    r = st.Runs()
+    for k in range(15):
+        r.feed(2 * k, frame(20 * k))
+    assert all(st.dist(st.sig(frame(20 * k)), st.sig(frame(20 * k + 20))) < st.DUP for k in range(14))   # every step looks the same
+    assert len(r.runs) >= 3                                       # but the zoom is kept as several pictures
+    assert any(0 < r_["end"] < 28 for r_ in r.runs)               # including a middle state
 
 
-def test_select_drops_a_recurring_camera_view_but_keeps_a_recurring_white_slide():
-    runs, t = [], 0
-    colors = [(200, 50, 50), (50, 200, 50), (50, 50, 200), (200, 200, 50), (200, 50, 200), (50, 200, 200)]
-    for c in colors:
-        runs.append(run(t, t + 10, (120, 90, 60))); t += 12      # speaker on camera
-        runs.append(run(t, t + 10, c)); t += 12                  # a distinct slide
-        runs.append(run(t, t + 10, (255, 255, 255))); t += 12    # a white page that comes back
-    _, keep, cam, _ = st.select(runs, dense=True)
-    assert len(cam) == 6 and all(r["im"].getpixel((0, 0)) == (120, 90, 60) for r in cam)
-    assert len(keep) == 12
+def test_typing_in_an_editor_is_split_at_its_pauses():
+    # A white editor: a line of text appears, the screen holds still, then the next line appears.
+    def editor(lines):
+        im = Image.new("RGB", (320, 180), (250, 250, 250))
+        for k in range(lines): im.paste((30, 30, 30), (20, 20 + 14 * k, 230, 26 + 14 * k))
+        return im
+    frames = []
+    for lines in range(9):
+        frames += [editor(lines)] * 3                                  # one new line, then a pause
+    r = st.Runs()
+    for k, im in enumerate(frames): r.feed(2 * k, im)
+    assert all(st.dist(st.sig(editor(k)), st.sig(editor(k + 1))) < st.DUP for k in range(8))   # each line is a small change
+    assert len(r.runs) >= 3                                                      # but the edits are kept as several pictures
+    assert all(r_["mid"] for r_ in r.runs[:-1])                                  # middle states, behind whole screens on the sheets
 
 
-def test_select_cap_keeps_longest_holds_in_time_order():
-    runs = [run(0, 5, (200, 50, 50)), run(10, 40, (50, 200, 50)), run(50, 70, (50, 50, 200))]
-    _, _, _, shown = st.select(runs, dense=True, cap=2)
-    assert [r["start"] for r in shown] == [10, 50]
+def test_still_slide_with_moving_webcam_corner_stays_one_picture():
+    r = st.Runs()
+    for k in range(20):
+        im = Image.new("RGB", (320, 180), (250, 250, 250))
+        im.paste((20, 20, 20), (30, 30, 250, 40))                  # a line of slide text
+        im.paste((90 + 60 * (k % 2),) * 3, (270, 140, 316, 176))    # a webcam corner that keeps changing
+        r.feed(2 * k, im)
+    assert len(r.runs) == 1
 
 
 def test_storyboard_tiles_are_labelled_one_step_late(monkeypatch):
@@ -81,36 +90,69 @@ def test_storyboard_tiles_are_labelled_one_step_late(monkeypatch):
     assert times == [10, 20, 30, 40]  # tile i shows about (i+1) * step
 
 
-def dark_studio(size=(64, 36)):
-    """Mostly near-black, with colorful people and lights: like a dimly lit studio wide shot."""
-    im = Image.new("RGB", size, (15, 15, 20))
-    for x in range(0, size[0], 4):
-        for y in range(size[1] // 3, size[1]):
-            if (x // 4) % 2 == 0: im.putpixel((x, y), (200, 70, 40))
+def slide(bg, size=(320, 180)):
+    """A slide: one background shade with two lines of text."""
+    im = Image.new("RGB", size, bg)
+    ink = (20, 20, 20) if sum(bg) > 380 else (240, 240, 240)
+    im.paste(ink, (30, 40, 260, 52)); im.paste(ink, (30, 70, 200, 82))
     return im
 
 
-def test_is_page_accepts_white_and_black_slides_but_not_a_dark_studio():
-    assert st.is_page(solid((255, 255, 255)))
-    assert st.is_page(solid((10, 10, 10)))
-    studio = dark_studio()
-    assert st.paper(studio) >= st.PAPER       # the old test called this a page...
-    assert not st.is_page(studio)              # ...the new one does not
+def camera(seed, size=(320, 180)):
+    """A camera shot: many shades, and it changes everywhere from frame to frame."""
+    rnd = random.Random(seed)
+    return Image.frombytes("RGB", size, bytes(rnd.randrange(60, 200) for _ in range(size[0] * size[1] * 3)))
 
 
-def test_recurring_dark_studio_view_is_dropped():
-    runs, t = [], 0
-    for c in [(200, 50, 50), (50, 200, 50), (50, 50, 200), (200, 200, 50), (200, 50, 200), (50, 200, 200)]:
-        im = dark_studio(); runs.append(dict(start=t, end=t + 10, im=im, sig=st.sig(im))); t += 12
-        runs.append(run(t, t + 10, c)); t += 12
-    _, keep, cam, _ = st.select(runs, dense=True)
-    assert len(cam) == 6 and len(keep) == 6
+def feed(frames):
+    r = st.Runs()
+    for k, im in enumerate(frames): r.feed(2 * k, im)
+    return r.runs
 
 
-def test_brief_page_is_kept_but_brief_other_picture_is_dropped():
-    runs = [run(0, 2, (255, 255, 255)), run(4, 6, (200, 50, 50)), run(8, 30, (50, 200, 50))]
-    _, keep, _, _ = st.select(runs, dense=True)
-    assert [r["start"] for r in keep] == [0, 8]
+def test_one_shade_does_not_care_about_colour():
+    for bg in ((255, 255, 255), (10, 10, 10), (20, 35, 60), (250, 220, 40), (40, 160, 70)):   # white, black, navy, yellow, green
+        assert st.one_shade(slide(bg)) >= st.FLAT
+    assert st.one_shade(camera(1)) < st.FLAT
+
+
+def test_still_share_ignores_a_webcam_corner_but_not_a_moving_picture():
+    a = st.fine(slide((20, 35, 60)))
+    b_im = slide((20, 35, 60)); b_im.paste((200, 150, 120), (270, 140, 316, 176)); b = st.fine(b_im)
+    assert st.still_share(a, a) == 1.0
+    assert st.still_share(b, a) >= st.STILL_SHARE                      # only the corner changed
+    assert st.still_share(st.fine(camera(2)), st.fine(camera(3))) < 0.2
+
+
+def test_decide_sorts_slides_camera_shots_and_unsure_pictures():
+    for bg in ((255, 255, 255), (20, 35, 60), (250, 220, 40)):
+        assert st.decide(feed([slide(bg)] * 3)[0]) == "slide"           # still and flat, in any colour
+    cam = [camera(k) for k in range(3)]
+    runs = feed(cam)
+    assert all(st.decide(r) == "camera" for r in runs)                  # moving and not flat
+    photo = camera(9)
+    assert st.decide(feed([photo] * 3)[0]) == "check"                    # still, but not flat (a photo slide)
+    assert st.decide(dict(im=slide((250, 220, 40)), still=[])) == "check"   # one frame, flat: stillness unknown
+    assert st.decide(dict(im=camera(4), still=[])) == "camera"          # one frame, not flat
+
+
+def test_select_keeps_slides_and_check_drops_camera_and_shows_slides_first():
+    runs = [dict(start=0, end=40, im=camera(5), still=[1.0] * 20, sig=None),        # long, still photo: check
+            dict(start=50, end=54, im=slide((40, 160, 70)), still=[1.0, 1.0], sig=None),  # short green slide
+            dict(start=60, end=90, im=camera(6), still=[0.0] * 15, sig=None)]       # camera shot
+    _, keep, cam, shown = st.select(runs, cap=1)
+    assert [r["start"] for r in keep] == [0, 50] and [r["start"] for r in cam] == [60]
+    assert [r["start"] for r in shown] == [50]                           # the cap keeps the slide, not the longer check
+
+
+def test_sheets_show_whole_screens_before_middle_states_of_a_change():
+    # A slow change cut by drift: its first pieces are middle states, its last piece is the complete screen.
+    runs = [dict(start=0, end=2, im=slide((250, 250, 250)), still=[1.0], mid=True),
+            dict(start=4, end=6, im=slide((250, 250, 250)), still=[1.0], mid=True),
+            dict(start=8, end=10, im=slide((250, 250, 250)), still=[1.0]),          # end of the change
+            dict(start=20, end=22, im=slide((20, 35, 60)), still=[1.0])]            # another whole screen
+    _, keep, _, shown = st.select(runs, cap=2)
+    assert len(keep) == 4 and [r["start"] for r in shown] == [8, 20]
 
 
 def test_minute_lines_groups_snippets_by_minute():

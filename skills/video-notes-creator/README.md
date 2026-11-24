@@ -1,6 +1,8 @@
 # video-notes-creator
 
-A Claude skill that turns one YouTube video into visual study notes: a PDF, its Markdown source, and a `figures` folder.
+A Claude skill that turns one YouTube video into visual study notes: a web page, its Markdown source, and a `figures` folder.
+
+- The page has a contents bar on the left. When one idea needs several frames, they show as one slider with previous and next buttons. Click any figure to see it full size.
 
 - The figures are the speaker's own slides, taken at the moment each slide is complete. Where no usable slide exists, it draws a card diagram from the concept.
 - Each claim has a timestamp and a source tag: [Speaker], [Slide], [Demo], or [Inference].
@@ -29,8 +31,11 @@ The first version also used Mermaid diagrams for every idea. They were technical
 
 - YouTube throttles one long request, so the script fetches the stream in 8 MB HTTP Range chunks, as a player does, and pipes them into ffmpeg. Nothing is saved to disk.
 - Frames that show the same picture are merged into a run. The script keeps the **last** frame of each run, where a slide's build animation is complete.
-- A picture that comes back many times is a camera view (the speaker, the stage) and is dropped, unless it looks like a page: a plain white or black background with almost no color. The color test matters: a dimly lit studio also has many black pixels.
-- A page that shows for less than 4 seconds is kept and marked "(brief page)". These are often paper title pages or posts that the editor shows for a moment.
+- A slow change (a zoom, a growing wave, an animated diagram) differs little from one frame to the next. So the script also compares each frame with the first frame of its run, at 64x36 in grey. When the difference reaches 3 levels, a new run starts. The middle states of an animation are then candidates too.
+- Typing in a screen recording changes even less: a still editor gains one line at a time. In a still picture, a drift of 1.2 levels starts a new run, at the next moment when the screen holds still. Boxes that move in most frames, such as a webcam or a playing video, do not count. So a webcam corner cannot split a slide.
+- Each picture gets two measures that ignore colour. **Still:** at least 80% of its 48 boxes (8 x 6) do not change between frames, so a webcam corner cannot make a slide look moving. **Flat:** its most common shade covers at least 35% of it, as a slide background does in any colour.
+- Still and flat is a slide. Moving and not flat is a camera shot, and it is dropped. One of the two is "check by eye": slides with video inside, zooming paper pages, a speaker in front of a plain wall. The sheets mark these with an amber "check".
+- The sheets show the complete state of each change first, slides before "check by eye". The middle states of animations come after, so typing in a screen recording cannot push whole screens off the sheets.
 - The output is a few contact sheets plus `inventory.txt`. The model looks at the sheets once and selects the slides it needs.
 
 **`grab`** gets only the selected frames at 1080p. ffmpeg seeks inside the remote stream, so it reads about 0.3 to 2 MB per frame, not the full file. Each frame is compared with its scan tile. If the time is off, the script searches nearby offsets until the frame matches.
@@ -47,7 +52,8 @@ From three test runs (a 39-minute talk, a 3.5-hour lecture, and a 30-minute inte
 | Time for that scan | 36 seconds |
 | Data read for 26 full-resolution frames (3.5-hour lecture) | 10.4 MB |
 | Data read for the dense scan of a 29:49 interview / 9 frames at 1080p | 22.7 MB / 14.1 MB (the 1080p file is 311 MB) |
-| Slide candidates in that interview before / after the color test for pages | 59 / 30 |
+| Slide pictures lost, 8 hand-labelled videos (471 in total): colour test / still and flat | 96 / 8 |
+| Hand-picked frames of an animated math video found as candidates: before / after the drift split | 4 / 14 of 14 |
 | Frames that matched their scan tile on the first try | 25 of 26 |
 | Storyboard fallback, 39-minute talk | 0.9 MB for the full video |
 | Storyboard frames correct before tile matching / after | 5 of 10 / 10 of 10 |
@@ -103,7 +109,7 @@ The scripts also work on their own, from this folder:
 python scripts/slide_tools.py transcript <url> work/
 python scripts/slide_tools.py scan <url> scan/
 python scripts/slide_tools.py grab <url> figures/ --match scan/tiles 12:34 1:02:05
-python scripts/build_pdf.py notes.md notes.pdf
+python scripts/build_html.py notes.md notes.html
 ```
 
 ## Files
@@ -112,7 +118,7 @@ python scripts/build_pdf.py notes.md notes.pdf
 |---|---|
 | `SKILL.md` | The instructions that Claude follows |
 | `scripts/slide_tools.py` | `transcript` gets the transcript and video details. `scan` finds slide candidates without a download. `grab` gets selected frames at full resolution |
-| `scripts/build_pdf.py` | Builds the PDF from the notes Markdown, with clickable citations and links |
+| `scripts/build_html.py` | Builds the web page from the notes Markdown: contents bar, sliders, full-size view, clickable citations. Warns about missing images, broken links, and long sentences |
 | `reader-profile.example.md` | Template for a saved reader profile |
 | `tests/` | Unit tests for both scripts. They need no network |
 
@@ -128,17 +134,18 @@ python -m pytest skills/video-notes-creator/tests
 The tests cover the logic that is easy to get wrong:
 
 - merging frames into runs and keeping the last frame
-- dropping camera views, including dark studio shots, while keeping white and black slides
-- keeping brief pages, and grouping the transcript by minute
+- splitting a slow animation into several runs, and typing at its pauses, but not a still slide with a moving webcam corner
+- sorting pictures into slide, camera shot, and check by eye, for white, black, navy, yellow, and green slides
+- showing whole screens on the sheets before the middle states of animations, and grouping the transcript by minute
 - the one-step offset of storyboard tiles
 - citation, anchor, and link conversion
-- column widths that fit timestamps, and no empty last page
-- an end-to-end PDF build with its links checked
+- figure runs that become sliders, nested lists, and code blocks
+- an end-to-end page build that warns about missing images, broken links, and long sentences
 
 ## Limits
 
 - YouTube only. Other sites need a manual transcript, and the skill asks before it downloads anything.
-- The contact sheets show the 144 longest-held candidates. A slide that shows only briefly can be missed. `inventory.txt` still lists it.
+- The contact sheets show 144 candidates at most: slides first, then the longest held. A candidate that is not on a sheet is still listed in `inventory.txt`.
 - Stream access depends on `yt-dlp` and can break when YouTube changes.
 - The notes quote and show the speaker's material. Keep them for personal study, and respect the video's license and YouTube's terms. Do not publish notes that contain slide screenshots without permission.
 
