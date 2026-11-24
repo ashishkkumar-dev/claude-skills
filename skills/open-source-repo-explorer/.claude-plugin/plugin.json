@@ -1,0 +1,18 @@
+{
+  "name": "open-source-repo-explorer",
+  "version": "0.2.0",
+  "description": "Learn an open source repository and make a first contribution that maintainers accept. Gives one HTML page with project health, an architecture map, a traced flow, live issue status and a contribution plan.",
+  "author": {
+    "name": "ashishkkumar-dev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "open-source",
+    "onboarding",
+    "contribution",
+    "github",
+    "gitlab",
+    "html",
+    "ste100"
+  ]
+}
